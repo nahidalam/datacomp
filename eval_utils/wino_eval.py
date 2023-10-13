@@ -65,6 +65,7 @@ def evaluate_winogavil_dataset(
 
     all_groups = []
     all_scores = []
+    metric = open_clip.METRICS[model.geometry]
 
     # Iterate WinoGAViL Instances
     for idx, (images, text, y_true) in enumerate(tqdm(dataloader)):
@@ -73,10 +74,13 @@ def evaluate_winogavil_dataset(
         n_assoc = y_true.sum()
         # Featurize
         with torch.no_grad(), torch.cuda.amp.autocast():
-            image_features = model.encode_image(images.to(device), normalize=True)
-            text_features = model.encode_text(text.to(device), normalize=True)
-            # Compute similarities
-            image_logits = (text_features @ image_features.T).squeeze(0).cpu().numpy()
+            output = model(image=images.to(device), text=text.to(device))
+            if isinstance(output, dict):
+                image_features, text_features, curvature = output['image_features'], output['text_features'], output['curvature']
+            else:
+                image_features, text_features,  _, _, curvature = output
+            # Compute logits (similarities or -distance)
+            image_logits = metric(text_features, image_features, curvature).squeeze(0).cpu().numpy()
         # Select topk
         topk_indices = np.argsort(image_logits)[-n_assoc:]
         y_pred = np.isin(np.arange(n_images), topk_indices)

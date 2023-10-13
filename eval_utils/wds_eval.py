@@ -9,13 +9,34 @@ from clip_benchmark.metrics import zeroshot_classification as zsc
 from sklearn.metrics import balanced_accuracy_score
 
 
+# Workaround suggested by the PyTorch error message
+# "RuntimeError: Too many open files. Communication with the workers is no longer possible."
+torch.multiprocessing.set_sharing_strategy('file_system')
+
+
 def create_model(model_arch, model_path):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(0)
 
     model_path = str(model_path)
+    # Note: This assumes the default open_clip train_output_dir structure, including the
+    # existence of the train_output_dir/params.txt file.
+    train_output_dir = model_path.split('/')[:-2]
+    params_file = '/'.join(train_output_dir + ["params.txt"])
+    model_kwargs = {}
+    with open(params_file) as f:
+        for line in f:
+            line = line.strip()
+            if line == 'siglip: True':
+                # Just use a placeholder value to make sure the state_dict matches.
+                # This will get overwritten by the checkpoint and has no effect on eval at all.
+                model_kwargs['init_logit_bias'] = 1.0
+            else:
+                l = line.split(': ')
+                if l[0] == 'geometry':
+                    model_kwargs['geometry'] = l[1]
     model, _, transform = open_clip.create_model_and_transforms(
-        model_arch, pretrained=model_path
+        model_arch, pretrained=model_path, **model_kwargs
     )
     model.eval()
     # model.half()

@@ -300,12 +300,12 @@ def evaluate_fairface_dataset(
         n_classes.append(len(info["classnames"]))
     # Combine classifiers
     multilabel_classifier = torch.zeros(
-        (len(classifiers), classifiers[0].shape[0], max(n_classes)),
+        (len(classifiers), max(n_classes), classifiers[0].shape[1]),
         dtype=classifiers[0].dtype,
         device=device,
     )
     for idx, classifier in enumerate(classifiers):
-        multilabel_classifier[idx, :, : n_classes[idx]] = classifier
+        multilabel_classifier[idx, : n_classes[idx], :] = classifier
 
     # Run classification
     logits, target = run_multilabel_classification(
@@ -331,9 +331,12 @@ def evaluate_fairface_dataset(
 
 def run_multilabel_classification(model, classifier, dataloader, device, amp=True):
     autocast = torch.cuda.amp.autocast if amp else suppress
+    metric = open_clip.METRICS[model.geometry]
     pred = []
     true = []
     nb = 0
+    o, c, d = classifier.size()
+    classifier = torch.reshape(classifier, (o * c, d))
     with torch.no_grad():
         for images, target in tqdm(dataloader):
             images = images.to(device)
@@ -341,8 +344,13 @@ def run_multilabel_classification(model, classifier, dataloader, device, amp=Tru
 
             with autocast():
                 # predict
-                image_features = model.encode_image(images, normalize=True)
-                logits = 100.0 * torch.einsum("bf,mfc->bmc", image_features, classifier)
+                output = model(image=images)
+                if isinstance(output, dict):
+                    image_features, curvature = output['image_features'], output['curvature']
+                else:
+                    image_features, _,  _, _, curvature = output
+                logits = 100. * metric(image_features, classifier, curvature)
+                logits = torch.reshape(logits, (-1, o, c))
 
             true.append(target.cpu())
             pred.append(logits.float().cpu())
