@@ -107,7 +107,7 @@ def evaluate_webdataset(
         device,
     )
     logits, target = zsc.run_classification(
-        model, classifier, dataloader, device, amp=False
+        model, classifier, dataloader, device
     )
     with torch.no_grad():
         pred = logits.argmax(axis=1).cpu()

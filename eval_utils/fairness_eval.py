@@ -309,7 +309,7 @@ def evaluate_fairface_dataset(
 
     # Run classification
     logits, target = run_multilabel_classification(
-        model, multilabel_classifier, dataloader, device, amp=False
+        model, multilabel_classifier, dataloader, device
     )
     with torch.no_grad():
         # Replace invalid entries (past n_classes for each class)
