@@ -100,9 +100,9 @@ def interpolate(model, feats: torch.Tensor, root_feat: torch.Tensor, steps: int)
     # Reverse the traversal order: (image first, root last)
     return interp_feats.flip(0)
 
-
+'''
 def calc_scores(
-    model, image_feats: torch.Tensor, text_feats: torch.Tensor, has_root: bool
+    model, image_feats: torch.Tensor, text_feats: torch.Tensor, curvature: torch.Tensor, has_root: bool
 ):
     """
     Calculate similarity scores between the given image and text features depending
@@ -115,13 +115,8 @@ def calc_scores(
 
     geometry = model.geometry.split('-')[0]
     metric = METRICS[geometry]
-    model_out = model(image_feats, text_feats)
-    curvature = model_out["curvature"]
-    return metric(image_feats, text_feats, curvature)
-    
-    
-    
-
+    return metric(image_feats, text_feats, curvature)    
+'''    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -161,18 +156,16 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------------
     print(f"\nPerforming image traversals...")
     # ------------------------------------------------------------------------
-    image = Image.open(args.image_path).convert("RGB")
-
-    image_transform = T.Compose(
-        [T.Resize(224, T.InterpolationMode.BICUBIC), T.CenterCrop(224), T.ToTensor()]
-    )
-    image = image_transform(image).to(device)
+    #image = Image.open(args.image_path).convert("RGB")
+    image = Image.open(args.image_path)
+    image = transform(image).to(device)
 
     ## get image and text feature https://github.com/EIFY/open_clip/blob/2b8bd6fa6377e56b7ce1a700cfa571b51746533c/src/open_clip/model.py#L332-L340
     image_feats, text_features, logit_scale, logit_bias, curvature = model(image = image)
 
     interp_feats = interpolate(model, image_feats, root_feat, args.steps)
-    nn1_scores = calc_scores(model, interp_feats, text_feats_pool, has_root=True)
+    #nn1_scores = calc_scores(model, interp_feats, text_feats_pool, curvature, has_root=True)
+    nn1_scores = METRICS[model.geometry]
 
     nn1_scores, _nn1_idxs = nn1_scores.max(dim=-1)
     nn1_texts = [text_pool[_idx.item()] for _idx in _nn1_idxs]
