@@ -156,16 +156,6 @@ if __name__ == "__main__":
         required=True, 
         help="Path to an image (.jpg) for perfoming traversal.",
     )
-    parser.add_argument(
-        "--train_output_dir",
-        required=True,
-        help="Path to output directory from training.",
-    )
-    parser.add_argument(
-        "--output_dir",
-        default=None,
-        help="Path to output directory to use for evaluation. If nothing is passed, use the training output dir.",
-    )
     parser.add_argument("--steps", default=50, type=int, help="Number of traversal steps.")
     parser.add_argument("--batch_size", default=64, type=int, help="Batch size.")
     parser.add_argument("--model_arch", default=64, type=int, help="Model Arch eg. ViT-B-32-no-final-ln.")
