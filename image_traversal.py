@@ -34,6 +34,7 @@ from scale_configs import available_scales, get_scale_config
 
 import torch
 import open_clip
+from open_clip import METRICS
 from PIL import Image
 from torchvision import transforms as T
 
@@ -117,26 +118,17 @@ def get_text_feats(model, model_arch) -> tuple[list[str], torch.Tensor]:
 
 def interpolate(model, feats: torch.Tensor, root_feat: torch.Tensor, steps: int):
     """
-    Interpolate between given feature vector and `[ROOT]` depending on model type.
+    Interpolate between given feature vector and `[ROOT]` depending on model type 
+    aka. generating intermediate embeddings that lie between the two given embeddings.
     """
 
-    # Linear interpolation between root and image features. For MERU, this happens
-    # in the tangent space of the origin.
-    if isinstance(model, MERU):
-        feats = L.log_map0(feats, model.curv.exp())
+    # Linear interpolation between root and image features. 
 
     interp_feats = [
         torch.lerp(root_feat, feats, weight.item())
         for weight in torch.linspace(0.0, 1.0, steps=steps)
     ]
     interp_feats = torch.stack(interp_feats)
-
-    # Lift on the Hyperboloid (for MERU), or L2 normalize (for CLIP).
-    if isinstance(model, MERU):
-        feats = L.log_map0(feats, model.curv.exp())
-        interp_feats = L.exp_map0(interp_feats, model.curv.exp())
-    else:
-        interp_feats = torch.nn.functional.normalize(interp_feats, dim=-1)
 
     # Reverse the traversal order: (image first, root last)
     return interp_feats.flip(0)
@@ -154,31 +146,13 @@ def calc_scores(
             is the `[ROOT]` embedding.
     """
 
-    '''
-    if isinstance(model, MERU):
-        scores = L.pairwise_inner(image_feats, text_feats, model.curv.exp())
-
-        # For MERU, exclude text embeddings that do not entail the given image.
-        _aper = L.half_aperture(text_feats, model.curv.exp())
-        _oxy_angle = L.oxy_angle(
-            text_feats[:, None, :], image_feats[None, :, :], model.curv.exp()
-        )
-        entailment_energy = _oxy_angle - _aper[..., None]
-
-        # Root entails everything.
-        if has_root:
-            entailment_energy[-1, ...] = 0
-
-        # Set a large negative score if text does not entail image.
-        scores[entailment_energy.T > 0] = -1e12
-        return scores
+    geometry = model.geometry.split('-')[0]
+    metric = METRICS[geometry]
+    model_out = model(image_feats, text_feats)
+    curvature = model_out["curvature"]
+    return metric(image_feats, text_feats, curvature)
     
-    else:
-        # model is not needed here.
-        return image_feats @ text_feats.T
-    '''
     
-    return image_feats @ text_feats.T
     
 
 
@@ -203,99 +177,24 @@ if __name__ == "__main__":
     )
     parser.add_argument("--steps", default=50, type=int, help="Number of traversal steps.")
     parser.add_argument("--batch_size", default=64, type=int, help="Batch size.")
-
-
-    # Debug-only flags. Using any of these might invalidate your submission.
-    parser_debug = parser.add_argument_group("debug-only")
-    parser_debug.add_argument(
-        "--use_model",
+    parser.add_argument("--model_arch", default=64, type=int, help="Model Arch eg. ViT-B-32-no-final-ln.")
+    parser.add_argument(
+        "--model_path",
         type=str,
-        help='If set, manually specify a model architecture and checkpoint path ("model path")',
+        help='Model checkpoint path',
         default=None,
     )
 
     args = parser.parse_args()
-
-    args.train_output_dir = Path(args.train_output_dir)
-    if args.output_dir is None:
-        args.output_dir = args.train_output_dir
-    args.output_dir = Path(args.output_dir)
-
-    if args.use_model is not None:
-        args.train_output_dir = args.output_dir
-        # Generate barebones info.pkl
-        model_arch, model_checkpoint = args.use_model.split(maxsplit=1)
-        Path.mkdir(args.output_dir, parents=True, exist_ok=True)
-        with open(args.train_output_dir / "info.pkl", "wb") as f:
-            pickle.dump(
-                {"scale_config": {"model": model_arch}, "checkpoint": model_checkpoint},
-                f,
-            )
-
-
-    # Read training information
-    train_info_filename = args.train_output_dir / "info.pkl"
-    train_info = pickle.load(open(train_info_filename, "rb"))
-
-    results_filename = args.output_dir / "eval_results.jsonl"
-
-    # Get list of datasets
-    with open(os.path.join(os.path.dirname(__file__), "tasklist.yml")) as f:
-        tasks = yaml.safe_load(f)
-
-    # Check for cached results
-    results = {}
-    cached_train_info_filename = args.output_dir / "info.pkl"
-    if args.output_dir.exists() and cached_train_info_filename.exists():
-        # If the output directory already exists, the training information should match.
-        cached_train_info = pickle.load(open(cached_train_info_filename, "rb"))
-        error_message = (
-            "Error: output directory exists, but the training configs do not match. "
-            "If you are re-using an output directory for evals, please be sure that "
-            "the training output directory is consistent."
-        )
-        assert cached_train_info == train_info, error_message
-
-        # Read existing results
-        if results_filename.exists():
-            with open(results_filename, "r") as f:
-                lines = [json.loads(s) for s in f.readlines()]
-                for line in lines:
-                    if line["key"] not in tasks:
-                        continue
-                    results[line["dataset"]] = line
-            print(f"Found {len(results)} eval result(s) in {results_filename}.")
-    else:
-        Path.mkdir(args.output_dir, parents=True, exist_ok=True)
-        pickle.dump(train_info, open(cached_train_info_filename, "wb"))
-
-    train_checkpoint = Path(train_info["checkpoint"])
-    try:
-        exists = Path(train_info["checkpoint"]).exists()
-    except:
-        exists = False
-    if not exists and args.use_model is None:
-        print(
-            "Warning, did not find or could not read checkpoint at",
-            train_info["checkpoint"],
-        )
-        default_checkpoint_name = (
-            args.train_output_dir / "checkpoints" / "epoch_latest.pt"
-        )
-        print("Defaulting to", default_checkpoint_name)
-        train_info["checkpoint"] = default_checkpoint_name
-
-    print("Doing Image Traversal...")
-    model_path = train_info["checkpoint"]
-    model_arch = train_info["scale_config"]["model"]
+          
     # Create model
-    model, transform, device = create_model(model_arch, model_path)
+    model, transform, device = create_model(args.model_arch, args.model_path)
 
     ## TODO: compute root_feat - not sure how :(
-    # root_feat = ...
+    root_feat = torch.zeros(model.visual.output_dim, device=device)
     
     # If no external text features are provided, use captions/tags from pexels.
-    text_pool, text_feats_pool = get_text_feats(model_path, model_arch)
+    text_pool, text_feats_pool = get_text_feats(args.model_path, args.model_arch)
 
     # Add [ROOT] to the pool of text feats.
     text_pool.append("[ROOT]")
