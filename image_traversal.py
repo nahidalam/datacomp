@@ -41,15 +41,6 @@ from torchvision import transforms as T
 warnings.filterwarnings("ignore", message="Length of IterableDataset")
 
 
-
-
-def path_or_cloudpath(s):
-    if re.match(r"^\w+://", s):
-        return CloudPath(s)
-    return Path(s)
-
-
-
 def create_model(model_arch, model_path):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(0)
