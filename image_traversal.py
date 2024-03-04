@@ -4,33 +4,9 @@ Assets: https://github.com/facebookresearch/meru/tree/main/assets
 '''
 
 import argparse
-import copy
 import json
-import os
-import pickle
-import re
-import shutil
-import time
 import warnings
 from pathlib import Path
-from time import gmtime, strftime
-
-import numpy as np
-import requests
-import yaml
-from cloudpathlib import CloudPath
-from huggingface_hub import (
-    CommitOperationAdd,
-    HfApi,
-    Repository,
-    dataset_info,
-    delete_folder,
-    upload_file,
-)
-from requests.structures import CaseInsensitiveDict
-
-from eval_utils.main import evaluate_model
-from scale_configs import available_scales, get_scale_config
 
 import torch
 import open_clip
