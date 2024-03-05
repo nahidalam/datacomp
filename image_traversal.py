@@ -98,25 +98,7 @@ def interpolate(model, feats: torch.Tensor, root_feat: torch.Tensor, steps: int)
     interp_feats = torch.stack(interp_feats)
 
     # Reverse the traversal order: (image first, root last)
-    return interp_feats.flip(0)
-
-'''
-def calc_scores(
-    model, image_feats: torch.Tensor, text_feats: torch.Tensor, curvature: torch.Tensor, has_root: bool
-):
-    """
-    Calculate similarity scores between the given image and text features depending
-    on model type.
-
-    Args:
-        has_root: Flag to indicate whether the last text embedding (at dim=0)
-            is the `[ROOT]` embedding.
-    """
-
-    geometry = model.geometry.split('-')[0]
-    metric = METRICS[geometry]
-    return metric(image_feats, text_feats, curvature)    
-'''    
+    return interp_feats.flip(0)   
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -129,7 +111,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--steps", default=50, type=int, help="Number of traversal steps.")
     parser.add_argument("--batch_size", default=64, type=int, help="Batch size.")
-    parser.add_argument("--model_arch", default=64, type=int, help="Model Arch eg. ViT-B-32-no-final-ln.")
+    parser.add_argument("--model_arch", type=str, help="Model Arch eg. ViT-B-32-no-final-ln.")
     parser.add_argument(
         "--model_path",
         type=str,
