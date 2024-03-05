@@ -13,6 +13,7 @@ import open_clip
 from open_clip import METRICS
 from PIL import Image
 from torchvision import transforms as T
+from collections import Counter
 
 warnings.filterwarnings("ignore", message="Length of IterableDataset")
 
@@ -217,6 +218,8 @@ if __name__ == "__main__":
     if args.min_radius:
         entailment_energy = _ENTAILMENT[key](text_feats_pool[None, :, :], interp_feats[:, None, :], curvature, args.min_radius)
         entailment_energy[..., -1] = 0
+        for row in ((entailment_energy > 0).cpu()).numpy():
+            print(Counter(row))
         nn1_scores[entailment_energy > 0] = -1e12
 
     nn1_scores, _nn1_idxs = nn1_scores.max(dim=-1)
