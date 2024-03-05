@@ -63,7 +63,7 @@ def get_text_feats(model, model_arch) -> tuple[list[str], torch.Tensor]:
     caption_tokens = tokenizer(pexels_text["captions"]).to(device)
     #all_text_feats.append(model.encode_text(caption_tokens, project=True))
     model_out = model(text = caption_tokens)
-    caption_tokens_features = model_out["text_features"]
+    caption_tokens_features = model_out[1]
     all_text_feats.append(caption_tokens_features)
 
     # Tokenize and encode prompts filled with tags.
@@ -73,7 +73,7 @@ def get_text_feats(model, model_arch) -> tuple[list[str], torch.Tensor]:
     ).to(device)
     #all_text_feats.append(model.encode_text(noun_prompt_tokens, project=True))
     model_out = model(text = noun_prompt_tokens)
-    noun_prompt_tokens_features = model_out["text_features"]
+    noun_prompt_tokens_features = model_out[1]
     all_text_feats.append(noun_prompt_tokens_features)
 
     adj_prompt_tokens = tokenizer(
@@ -81,7 +81,7 @@ def get_text_feats(model, model_arch) -> tuple[list[str], torch.Tensor]:
     ).to(device)
     #all_text_feats.append(model.encode_text(adj_prompt_tokens, project=True))
     model_out = model(text = adj_prompt_tokens)
-    adj_prompt_tokens_features = model_out["text_features"]
+    adj_prompt_tokens_features = model_out[1]
     all_text_feats.append(adj_prompt_tokens_features)
 
     all_text_feats = torch.cat(all_text_feats, dim=0)
