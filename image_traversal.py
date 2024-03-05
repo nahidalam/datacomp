@@ -11,6 +11,7 @@ from pathlib import Path
 import torch
 import open_clip
 from open_clip import METRICS
+from open_clip.loss import _ENTAILMENT
 from PIL import Image
 from torchvision import transforms as T
 
@@ -127,6 +128,12 @@ if __name__ == "__main__":
         help='Model checkpoint path',
         default=None,
     )
+    parser.add_argument(
+        "--min_radius",
+        type=float,
+        default=0.1,
+        help="Radius of the epsilon-ball within which aperture is undefined."
+    )
 
     args = parser.parse_args()
           
@@ -161,6 +168,13 @@ if __name__ == "__main__":
     #nn1_scores = calc_scores(model, interp_feats, text_feats_pool, curvature, has_root=True)
     metric = METRICS[model.geometry]
     nn1_scores = metric(interp_feats, text_feats_pool, curvature)
+    key = model.geometry.split('-')[0]
+    if key in _ENTAILMENT:
+        entailment_energy = _ENTAILMENT[key](text_feats_pool, image_feats, curvature, args.min_radius).T
+        # Root entails everything
+        entailment_energy[..., -1] = 0
+        # Set a large negative score if text does not entail image.
+        nn1_scores[entailment_energy.T > 0] = -1e12
 
     nn1_scores, _nn1_idxs = nn1_scores.max(dim=-1)
     nn1_texts = [text_pool[_idx.item()] for _idx in _nn1_idxs]
