@@ -151,11 +151,8 @@ if __name__ == "__main__":
     image = Image.open(args.image_path)
     image = transform(image).to(device)
 
-    ## get image and text feature https://github.com/EIFY/open_clip/blob/2b8bd6fa6377e56b7ce1a700cfa571b51746533c/src/open_clip/model.py#L332-L340
-    model_out = model(image = image)
-    image_feats = model_out[0]
-    text_features = model_out[1]
-    #image_feats, text_features, logit_scale, logit_bias, curvature = model(image = image)
+    ## get image and text feature https://github.com/EIFY/open_clip/blob/2b8bd6fa6377e56b7ce1a700cfa571b51746533c/src/open_clip/model.py#L332-L340       
+    image_feats = model(image = image.unsqueeze(0))[0][0]
 
     interp_feats = interpolate(model, image_feats, root_feat, args.steps)
     #nn1_scores = calc_scores(model, interp_feats, text_feats_pool, curvature, has_root=True)
