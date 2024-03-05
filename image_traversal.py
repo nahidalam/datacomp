@@ -11,12 +11,47 @@ from pathlib import Path
 import torch
 import open_clip
 from open_clip import METRICS
-from open_clip.loss import _ENTAILMENT
 from PIL import Image
 from torchvision import transforms as T
 
 warnings.filterwarnings("ignore", message="Length of IterableDataset")
 
+
+def euclidean_entailment(x, y, _, K):
+    # https://arxiv.org/abs/1804.01882
+    y_x = y - x
+    x_norm = x.norm(dim=-1)
+    ext = torch.acos((y_x * x).sum(-1) / (y_x.norm(dim=-1) * x_norm))
+    if not K:
+        return ext.mean()
+    aper = torch.asin(torch.clamp(K / x_norm, max=1.))
+    return torch.clamp(ext - aper, min=0.)
+
+def _exponential_map(x, curvature):
+    c_sqrt_norm = torch.sqrt(curvature) * x.norm(dim=-1, keepdim=True)
+    x_space = torch.sinh(c_sqrt_norm) / c_sqrt_norm * x
+    x_time = torch.sqrt(curvature.reciprocal() + (x_space ** 2).sum(-1))
+    return x_space, x_time
+
+def hyperbolic_entailment(x, y, curvature, K):
+    # FP32 for exponential map and losses for numerical stability,
+    # per https://arxiv.org/abs/2304.09172
+    x, y, curvature = x.double(), y.double(), curvature.double()
+    x_space, x_time = _exponential_map(x, curvature)
+    x_space_norm = x_space.norm(dim=-1)
+    y_space, y_time = _exponential_map(y, curvature)
+    l = (x_space * y_space).sum(-1) - x_time * y_time
+    c_l = curvature * l
+    ext = torch.acos((y_time + x_time * c_l) / (x_space_norm * torch.sqrt(c_l ** 2 - 1.)))
+    if not K:
+        return ext.mean()
+    aper = torch.asin(torch.clamp(2 * K / (torch.sqrt(curvature) * x_space_norm), max=1.))
+    return torch.clamp(ext - aper, min=0.)
+
+_ENTAILMENT = {
+    'euclidean': euclidean_entailment,
+    'hyperbolic': hyperbolic_entailment,
+}
 
 def create_model(model_arch, model_path):
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -131,7 +166,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--min_radius",
         type=float,
-        default=0.1,
+        default=0.0,
         help="Radius of the epsilon-ball within which aperture is undefined."
     )
 
@@ -154,13 +189,10 @@ if __name__ == "__main__":
     # ------------------------------------------------------------------------
     print(f"\nPerforming image traversals...")
     # ------------------------------------------------------------------------
-    #image = Image.open(args.image_path).convert("RGB")
     image = Image.open(args.image_path)
     image = transform(image).to(device)
 
     ## get image and text feature https://github.com/EIFY/open_clip/blob/2b8bd6fa6377e56b7ce1a700cfa571b51746533c/src/open_clip/model.py#L332-L340       
-    #image_features, text_features, logit_scale, logit_bias, curvature = model(text)
-    #image_feats, _, _, _,  curvature = model(image = image.unsqueeze(0))[0][0]
     image_feats, _, _, _, curvature = model(image = image.unsqueeze(0))
     image_feats = image_feats[0]
 
@@ -169,12 +201,10 @@ if __name__ == "__main__":
     metric = METRICS[model.geometry]
     nn1_scores = metric(interp_feats, text_feats_pool, curvature)
     key = model.geometry.split('-')[0]
-    if key in _ENTAILMENT:
-        entailment_energy = _ENTAILMENT[key](text_feats_pool, image_feats, curvature, args.min_radius).T
-        # Root entails everything
+    if args.min_radius:
+        entailment_energy = _ENTAILMENT[key](text_feats_pool[None, :, :], image_feats[:, None, :], curvature, args.min_radius)
         entailment_energy[..., -1] = 0
-        # Set a large negative score if text does not entail image.
-        nn1_scores[entailment_energy.T > 0] = -1e12
+        nn1_scores[entailment_energy > 0] = -1e12
 
     nn1_scores, _nn1_idxs = nn1_scores.max(dim=-1)
     nn1_texts = [text_pool[_idx.item()] for _idx in _nn1_idxs]
