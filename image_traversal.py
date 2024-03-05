@@ -33,6 +33,16 @@ def _exponential_map(x, curvature):
     x_time = torch.sqrt(curvature.reciprocal() + (x_space ** 2).sum(-1))
     return x_space, x_time
 
+
+def lorentzian_distance_from_zero(x, curvature):
+    # FP32 for exponential map and losses for numerical stability,
+    # per https://arxiv.org/abs/2304.09172
+    x, curvature = x.double(), curvature.double()
+    _, x_time = _exponential_map(x, curvature)
+    y_time = torch.rsqrt(curvature) * torch.ones(1).to(x)
+    return -torch.rsqrt(curvature) * torch.acosh(curvature * torch.outer(x_time, y_time))
+
+
 def hyperbolic_entailment(x, y, curvature, K):
     # FP32 for exponential map and losses for numerical stability,
     # per https://arxiv.org/abs/2304.09172
@@ -197,9 +207,12 @@ if __name__ == "__main__":
     image_feats = image_feats[0]
 
     interp_feats = interpolate(model, image_feats, root_feat, args.steps)
-    #nn1_scores = calc_scores(model, interp_feats, text_feats_pool, curvature, has_root=True)
     metric = METRICS[model.geometry]
     nn1_scores = metric(interp_feats, text_feats_pool, curvature)
+    if model.geometry == 'hyperbolic':
+        nn1_scores[-1, :] = lorentzian_distance_from_zero(text_feats_pool, curvature).squeeze(dim=-1)
+        nn1_scores[:, -1] = lorentzian_distance_from_zero(interp_feats, curvature).squeeze(dim=-1)
+        nn1_scores[-1, -1] = 0
     key = model.geometry.split('-')[0]
     if args.min_radius:
         entailment_energy = _ENTAILMENT[key](text_feats_pool[None, :, :], interp_feats[:, None, :], curvature, args.min_radius)
