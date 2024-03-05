@@ -202,7 +202,7 @@ if __name__ == "__main__":
     nn1_scores = metric(interp_feats, text_feats_pool, curvature)
     key = model.geometry.split('-')[0]
     if args.min_radius:
-        entailment_energy = _ENTAILMENT[key](text_feats_pool[None, :, :], image_feats[:, None, :], curvature, args.min_radius)
+        entailment_energy = _ENTAILMENT[key](text_feats_pool[None, :, :], interp_feats[:, None, :], curvature, args.min_radius)
         entailment_energy[..., -1] = 0
         nn1_scores[entailment_energy > 0] = -1e12
 
