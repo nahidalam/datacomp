@@ -137,7 +137,7 @@ if __name__ == "__main__":
     root_feat = torch.zeros(model.visual.output_dim, device=device)
     
     # If no external text features are provided, use captions/tags from pexels.
-    text_pool, text_feats_pool = get_text_feats(args.model_path, args.model_arch)
+    text_pool, text_feats_pool = get_text_feats(model, args.model_arch)
 
     # Add [ROOT] to the pool of text feats.
     text_pool.append("[ROOT]")
@@ -152,7 +152,10 @@ if __name__ == "__main__":
     image = transform(image).to(device)
 
     ## get image and text feature https://github.com/EIFY/open_clip/blob/2b8bd6fa6377e56b7ce1a700cfa571b51746533c/src/open_clip/model.py#L332-L340
-    image_feats, text_features, logit_scale, logit_bias, curvature = model(image = image)
+    model_out = model(image = image)
+    image_feats = model_out["image_features"]
+    text_features = model_out["text_features"]
+    #image_feats, text_features, logit_scale, logit_bias, curvature = model(image = image)
 
     interp_feats = interpolate(model, image_feats, root_feat, args.steps)
     #nn1_scores = calc_scores(model, interp_feats, text_feats_pool, curvature, has_root=True)
