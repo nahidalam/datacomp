@@ -7,8 +7,9 @@ import argparse
 import json
 import warnings
 from pathlib import Path
-
+import numpy as np
 import torch
+import torch.nn.functional as F
 import open_clip
 from open_clip import METRICS
 from PIL import Image
@@ -180,14 +181,23 @@ if __name__ == "__main__":
         default=0.0,
         help="Radius of the epsilon-ball within which aperture is undefined."
     )
+    parser.add_argument(
+        "--root_path",
+        type=str,
+        default="",
+        help="path of the root.npy for CLIP/Elliptic geometry."
+    )
 
     args = parser.parse_args()
           
     # Create model
     model, transform, device = create_model(args.model_arch, args.model_path)
 
-    ## TODO: compute root_feat - not sure how :(
-    root_feat = torch.zeros(model.visual.output_dim, device=device)
+    ## compute root feature
+    if model.normalize:
+        root_feat = torch.tensor(np.load(args.root_path)[0]).to(device=device) 
+    else:
+        root_feat = torch.zeros(model.visual.output_dim, device=device)
     
     # If no external text features are provided, use captions/tags from pexels.
     text_pool, text_feats_pool = get_text_feats(model, args.model_arch)
@@ -195,6 +205,7 @@ if __name__ == "__main__":
     # Add [ROOT] to the pool of text feats.
     text_pool.append("[ROOT]")
     text_feats_pool = torch.cat([text_feats_pool, root_feat[None, ...]])
+
 
 
     # ------------------------------------------------------------------------
@@ -208,6 +219,8 @@ if __name__ == "__main__":
     image_feats = image_feats[0]
 
     interp_feats = interpolate(model, image_feats, root_feat, args.steps)
+    if model.normalize:
+        interp_feats = F.normalize(interp_feats, dim=-1)
     metric = METRICS[model.geometry]
     nn1_scores = metric(interp_feats, text_feats_pool, curvature)
     if model.geometry == 'hyperbolic':
