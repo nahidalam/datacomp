@@ -158,6 +158,32 @@ def interpolate(model, feats: torch.Tensor, root_feat: torch.Tensor, steps: int)
     return interp_feats.flip(0)   
 
 
+def generate_latex_table(json_file):
+    with open(json_file, "r") as file:
+        data = json.load(file)
+
+    num_keys = len(data)
+    column_headers = "||".join(["c"] * num_keys)
+
+    latex_table = "\\begin{tabular}{|" + "|".join(["c"] * num_keys) + "|}\n"
+    latex_table += " \\hline\n"
+
+    for key, values in data.items():
+        for value in values:
+            latex_table += f" {value} &" if value != "↓" else " ↓ &"
+        latex_table = latex_table[:-1]  # remove the last '&'
+        latex_table += " \\\\\n \\hline\n"
+
+    latex_table += "\\end{tabular}"
+
+    return latex_table
+
+
+def write_latex_template_to_file(latex_template, filename):
+    with open(filename, "w") as file:
+        file.write(latex_template)
+
+
 def process_image(image_path, model, transform, text_pool, text_feats_pool, root_feat, args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -259,4 +285,12 @@ if __name__ == "__main__":
         json.dump(output_dict, json_file)
 
     print("Results written to:", args.output_json)
+    #create the latex template
+    latex_table = generate_latex_table(json_file)
+    print(latex_table)
+    # Write LaTeX template to a text file
+    write_latex_template_to_file(latex_table, "latex_template.txt")
+
+    # Write LaTeX template to a .tex file
+    write_latex_template_to_file(latex_table, "latex_template.tex")
 
