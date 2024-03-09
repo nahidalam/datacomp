@@ -157,14 +157,45 @@ def interpolate(model, feats: torch.Tensor, root_feat: torch.Tensor, steps: int)
     # Reverse the traversal order: (image first, root last)
     return interp_feats.flip(0)   
 
+
+def process_image(image_path, model, transform, text_pool, text_feats_pool, root_feat, args):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    image = Image.open(image_path)
+    image = transform(image).to(device)
+
+    image_feats, _, _, _, curvature = model(image=image.unsqueeze(0))
+    image_feats = image_feats[0]
+
+    interp_feats = interpolate(model, image_feats, root_feat, args.steps)
+    if model.normalize:
+        interp_feats = F.normalize(interp_feats, dim=-1)
+    metric = METRICS[model.geometry]
+    nn1_scores = metric(interp_feats, text_feats_pool, curvature)
+    if model.geometry == 'hyperbolic':
+        nn1_scores[-1, :] = lorentzian_distance_from_zero(text_feats_pool, curvature).squeeze(dim=-1)
+        nn1_scores[:, -1] = lorentzian_distance_from_zero(interp_feats, curvature).squeeze(dim=-1)
+        nn1_scores[-1, -1] = 0
+    key = model.geometry.split('-')[0]
+    if args.min_radius:
+        entailment_energy = _ENTAILMENT[key](text_feats_pool[None, :, :], interp_feats[:, None, :], curvature,
+                                             args.min_radius)
+        entailment_energy[..., -1] = 0
+        nn1_scores[entailment_energy > 0] = -1e12
+
+    nn1_scores, _nn1_idxs = nn1_scores.max(dim=-1)
+    nn1_texts = [text_pool[_idx.item()] for _idx in _nn1_idxs]
+
+    return nn1_texts
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--image_path",
+        "--input_image_dir",
         type=str,
-        required=True, 
-        help="Path to an image (.jpg) for perfoming traversal.",
+        required=True,
+        help="Path to a directory containing images for performing traversal.",
     )
     parser.add_argument("--steps", default=50, type=int, help="Number of traversal steps.")
     parser.add_argument("--batch_size", default=64, type=int, help="Batch size.")
@@ -187,18 +218,25 @@ if __name__ == "__main__":
         default="",
         help="path of the root.npy for CLIP/Elliptic geometry."
     )
+    parser.add_argument(
+        "--output_json",
+        type=str,
+        default="output.json",
+        help="Output JSON file path to write the results."
+    )
 
     args = parser.parse_args()
-          
-    # Create model
-    model, transform, device = create_model(args.model_arch, args.model_path)
 
-    ## compute root feature
+    # Create model
+    model, transform, _ = create_model(args.model_arch, args.model_path)
+
+    # compute root feature
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if model.normalize:
-        root_feat = torch.tensor(np.load(args.root_path)[0]).to(device=device) 
+        root_feat = torch.tensor(np.load(args.root_path)[0]).to(device=device)
     else:
         root_feat = torch.zeros(model.visual.output_dim, device=device)
-    
+
     # If no external text features are provided, use captions/tags from pexels.
     text_pool, text_feats_pool = get_text_feats(model, args.model_arch)
 
@@ -206,47 +244,20 @@ if __name__ == "__main__":
     text_pool.append("[ROOT]")
     text_feats_pool = torch.cat([text_feats_pool, root_feat[None, ...]])
 
-
-
     # ------------------------------------------------------------------------
     print(f"\nPerforming image traversals...")
     # ------------------------------------------------------------------------
-    image = Image.open(args.image_path)
-    image = transform(image).to(device)
 
-    ## get image and text feature https://github.com/EIFY/open_clip/blob/2b8bd6fa6377e56b7ce1a700cfa571b51746533c/src/open_clip/model.py#L332-L340       
-    image_feats, _, _, _, curvature = model(image = image.unsqueeze(0))
-    image_feats = image_feats[0]
+    output_dict = {}
+    for image_file in os.listdir(args.input_image_dir):
+        image_path = os.path.join(args.input_image_dir, image_file)
+        if os.path.isfile(image_path):
+            image_text = process_image(image_path, model, transform, text_pool, text_feats_pool, root_feat, args)
+            output_dict[image_file] = image_text
 
-    interp_feats = interpolate(model, image_feats, root_feat, args.steps)
-    if model.normalize:
-        interp_feats = F.normalize(interp_feats, dim=-1)
-    metric = METRICS[model.geometry]
-    nn1_scores = metric(interp_feats, text_feats_pool, curvature)
-    if model.geometry == 'hyperbolic':
-        nn1_scores[-1, :] = lorentzian_distance_from_zero(text_feats_pool, curvature).squeeze(dim=-1)
-        nn1_scores[:, -1] = lorentzian_distance_from_zero(interp_feats, curvature).squeeze(dim=-1)
-        nn1_scores[-1, -1] = 0
-    key = model.geometry.split('-')[0]
-    if args.min_radius:
-        entailment_energy = _ENTAILMENT[key](text_feats_pool[None, :, :], interp_feats[:, None, :], curvature, args.min_radius)
-        entailment_energy[..., -1] = 0
-        '''
-        for row in ((entailment_energy > 0).cpu()).numpy():
-            print(Counter(row))
-        '''
-        nn1_scores[entailment_energy > 0] = -1e12
+    # Write results to JSON file
+    with open(args.output_json, "w") as json_file:
+        json.dump(output_dict, json_file)
 
-    nn1_scores, _nn1_idxs = nn1_scores.max(dim=-1)
-    nn1_texts = [text_pool[_idx.item()] for _idx in _nn1_idxs]
+    print("Results written to:", args.output_json)
 
-    # De-duplicate retrieved texts (multiple points may have same NN) and print.
-    print(f"Texts retrieved from [IMAGE] -> [ROOT] traversal:")
-    unique_nn1_texts = []
-    for _text in nn1_texts:
-        if _text not in unique_nn1_texts:
-            unique_nn1_texts.append(_text)
-            print(f"  - {_text}")
-    
-
-    
