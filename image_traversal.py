@@ -228,10 +228,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Create model
-    model, transform, _ = create_model(args.model_arch, args.model_path)
+    model, transform, device = create_model(args.model_arch, args.model_path)
 
     # compute root feature
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if model.normalize:
         root_feat = torch.tensor(np.load(args.root_path)[0]).to(device=device)
     else:
