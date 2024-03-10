@@ -278,8 +278,14 @@ if __name__ == "__main__":
     for image_file in os.listdir(args.input_image_dir):
         image_path = os.path.join(args.input_image_dir, image_file)
         if os.path.isfile(image_path):
-            image_text = process_image(image_path, model, transform, text_pool, text_feats_pool, root_feat, args)
-            output_dict[image_file] = image_text
+            nn1_texts = process_image(image_path, model, transform, text_pool, text_feats_pool, root_feat, args)
+            print(f"Texts retrieved from [IMAGE] -> [ROOT] traversal:")
+            unique_nn1_texts = []
+            for _text in nn1_texts:
+                if _text not in unique_nn1_texts:
+                    unique_nn1_texts.append(_text)
+                    print(f"  - {_text}")
+            output_dict[image_file] = unique_nn1_texts
 
     # Write results to JSON file
     with open(args.output_json, "w") as json_file:
@@ -288,10 +294,14 @@ if __name__ == "__main__":
     print("Results written to:", args.output_json)
     #create the latex template
     latex_table = generate_latex_table(args.output_json)
-    print(latex_table)
+    #print(latex_table)
+    # Remove ".json" extension from args.output_json
+    output_file_prefix = args.output_json.replace(".json", "")
+
     # Write LaTeX template to a text file
-    write_latex_template_to_file(latex_table, "latex_template.txt")
+    write_latex_template_to_file(latex_table, output_file_prefix + "_latex_template.txt")
 
     # Write LaTeX template to a .tex file
-    write_latex_template_to_file(latex_table, "latex_template.tex")
+    write_latex_template_to_file(latex_table, output_file_prefix + "_latex_template.tex")
+
 
