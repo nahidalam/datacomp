@@ -5,6 +5,7 @@ Assets: https://github.com/facebookresearch/meru/tree/main/assets
 import os
 import argparse
 import json
+import pandas as pd
 import warnings
 from pathlib import Path
 import numpy as np
@@ -158,26 +159,50 @@ def interpolate(model, feats: torch.Tensor, root_feat: torch.Tensor, steps: int)
     return interp_feats.flip(0)   
 
 
-def generate_latex_table(json_file):
-    with open(json_file, "r") as file:
-        data = json.load(file)
+# Function to create LaTeX table code, ensuring no [ROOT] before final row
+def create_latex_code(selected_df, selected_columns):
+    # Iterate over each column and replace '[ROOT]' with '$\\downarrow$' if not in the last position
+    for col in selected_columns:
+        if selected_df[col].eq('[ROOT]').any():  # Check if '[ROOT]' exists in the column
+            # Replace all '[ROOT]' occurrences with '$\\downarrow$' except the last one
+            last_root_index = selected_df[col].last_valid_index()
+            selected_df[col] = selected_df[col].replace('[ROOT]', '$\\downarrow$')
 
-    num_keys = len(data)
-    column_headers = "||".join(["c"] * num_keys)
+    # Replace NaN with '$\\downarrow$'
+    selected_df.fillna('$\\downarrow$', inplace=True)
 
-    latex_table = "\\begin{tabular}{|" + "|".join(["c"] * num_keys) + "|}\n"
-    latex_table += " \\hline\n"
+    # Assemble the LaTeX table rows
+    rows = [' & '.join(row) + ' \\\\\n \\hline' for index, row in selected_df.iterrows()]
 
-    for key, values in data.items():
-        for value in values:
-            #latex_table += f" {value} &" if value != "↓" else " ↓ &"
-            latex_table += f" {value} &" if value != "$\downarrow$" else " $\downarrow$ &"
-        latex_table = latex_table[:-1]  # remove the last '&'
-        latex_table += " \\\\\n \\hline\n"
+    # Update column names for LaTeX graphics inclusion
+    image_columns = ['\\includegraphics[width=25mm, height=25mm]{' + col + '}' for col in selected_columns]
 
-    latex_table += "\\end{tabular}"
-
+    # Construct the final LaTeX table, including the end-row with [ROOT]
+    latex_table = '\\begin{tabular}{|c||c||c||c|}\n \\hline\n' + \
+                  ' & '.join(image_columns) + ' \\\\\n \\hline\n' + \
+                  '\n'.join(rows) + \
+                  '\\multicolumn{4}{|c|}{[ROOT]} \\\\\n \\hline\n' + \
+                  '\\end{tabular}\n\n'
+    
     return latex_table
+
+
+def generate_latex_table(file_path):
+    with open(file_path, 'r') as file:
+        data = json.load(file)
+    # Convert JSON to DataFrame
+    df = pd.DataFrame.from_dict(data, orient='index').transpose()
+    # output tex filename
+    output_file_prefix = file_path.replace(".json", "")
+    output_tex_path = output_file_prefix + '_latex_tables.tex'  
+
+    # Write the LaTeX tables to the file
+    with open(output_tex_path, 'w') as tex_file:
+        for i in range(0, len(df.columns), 4):  # Process every four columns
+            selected_columns = df.columns[i:i+4].tolist()
+            selected_df = df[selected_columns].copy()  # Create a copy for modifications
+            latex_table = create_latex_code(selected_df, selected_columns)
+            tex_file.write(latex_table)  # Write each table to the file
 
 
 def write_latex_template_to_file(latex_template, filename):
@@ -293,15 +318,12 @@ if __name__ == "__main__":
 
     print("Results written to:", args.output_json)
     #create the latex template
-    latex_table = generate_latex_table(args.output_json)
+    generate_latex_table(args.output_json)
     #print(latex_table)
     # Remove ".json" extension from args.output_json
-    output_file_prefix = args.output_json.replace(".json", "")
-
-    # Write LaTeX template to a text file
-    write_latex_template_to_file(latex_table, output_file_prefix + "_latex_template.txt")
+    #output_file_prefix = args.output_json.replace(".json", "")
 
     # Write LaTeX template to a .tex file
-    write_latex_template_to_file(latex_table, output_file_prefix + "_latex_template.tex")
+    #write_latex_template_to_file(latex_table, output_file_prefix + "_latex_template.tex")
 
 
