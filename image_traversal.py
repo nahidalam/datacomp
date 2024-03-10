@@ -2,7 +2,7 @@
 Image traversal: https://github.com/facebookresearch/meru/blob/main/scripts/image_traversals.py
 Assets: https://github.com/facebookresearch/meru/tree/main/assets 
 '''
-
+import os
 import argparse
 import json
 import warnings
@@ -170,7 +170,8 @@ def generate_latex_table(json_file):
 
     for key, values in data.items():
         for value in values:
-            latex_table += f" {value} &" if value != "↓" else " ↓ &"
+            #latex_table += f" {value} &" if value != "↓" else " ↓ &"
+            latex_table += f" {value} &" if value != "$\downarrow$" else " $\downarrow$ &"
         latex_table = latex_table[:-1]  # remove the last '&'
         latex_table += " \\\\\n \\hline\n"
 
@@ -286,7 +287,7 @@ if __name__ == "__main__":
 
     print("Results written to:", args.output_json)
     #create the latex template
-    latex_table = generate_latex_table(json_file)
+    latex_table = generate_latex_table(args.output_json)
     print(latex_table)
     # Write LaTeX template to a text file
     write_latex_template_to_file(latex_table, "latex_template.txt")
