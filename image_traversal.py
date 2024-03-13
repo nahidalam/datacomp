@@ -1,7 +1,3 @@
-'''
-Image traversal: https://github.com/facebookresearch/meru/blob/main/scripts/image_traversals.py
-Assets: https://github.com/facebookresearch/meru/tree/main/assets 
-'''
 import os
 import argparse
 import json
@@ -13,6 +9,7 @@ import torch
 import torch.nn.functional as F
 import open_clip
 from open_clip import METRICS
+from open_clip.loss import _ENTAILMENT
 from PIL import Image
 from torchvision import transforms as T
 from collections import Counter
@@ -61,18 +58,12 @@ def hyperbolic_entailment(x, y, curvature, K):
     aper = torch.asin(torch.clamp(2 * K / (torch.sqrt(curvature) * x_space_norm), max=1.))
     return torch.clamp(ext - aper, min=0.)
 
-_ENTAILMENT = {
-    'euclidean': euclidean_entailment,
-    'hyperbolic': hyperbolic_entailment,
-}
 
 def create_model(model_arch, model_path):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     torch.manual_seed(0)
 
     model_path = str(model_path)
-    # Note: This assumes the default open_clip train_output_dir structure, including the
-    # existence of the train_output_dir/params.txt file.
     train_output_dir = model_path.split('/')[:-2]
     params_file = '/'.join(train_output_dir + ["params.txt"])
     model_kwargs = {}
@@ -80,8 +71,6 @@ def create_model(model_arch, model_path):
         for line in f:
             line = line.strip()
             if line == 'siglip: True':
-                # Just use a placeholder value to make sure the state_dict matches.
-                # This will get overwritten by the checkpoint and has no effect on eval at all.
                 model_kwargs['init_logit_bias'] = 1.0
             else:
                 l = line.split(': ')
@@ -91,7 +80,6 @@ def create_model(model_arch, model_path):
         model_arch, pretrained=model_path, **model_kwargs
     )
     model.eval()
-    # model.half()
     model = model.to(device)
 
     return model, transform, device
@@ -110,7 +98,6 @@ def get_text_feats(model, model_arch) -> tuple[list[str], torch.Tensor]:
 
     # Tokenize and encode captions.
     caption_tokens = tokenizer(pexels_text["captions"]).to(device)
-    #all_text_feats.append(model.encode_text(caption_tokens, project=True))
     model_out = model(text = caption_tokens)
     caption_tokens_features = model_out[1]
     all_text_feats.append(caption_tokens_features)
@@ -120,7 +107,6 @@ def get_text_feats(model, model_arch) -> tuple[list[str], torch.Tensor]:
     noun_prompt_tokens = tokenizer(
         [NOUN_PROMPT.format(tag) for tag in pexels_text["nouns"]]
     ).to(device)
-    #all_text_feats.append(model.encode_text(noun_prompt_tokens, project=True))
     model_out = model(text = noun_prompt_tokens)
     noun_prompt_tokens_features = model_out[1]
     all_text_feats.append(noun_prompt_tokens_features)
@@ -128,7 +114,6 @@ def get_text_feats(model, model_arch) -> tuple[list[str], torch.Tensor]:
     adj_prompt_tokens = tokenizer(
         [ADJ_PROMPT.format(tag) for tag in pexels_text["adjectives"]]
     ).to(device)
-    #all_text_feats.append(model.encode_text(adj_prompt_tokens, project=True))
     model_out = model(text = adj_prompt_tokens)
     adj_prompt_tokens_features = model_out[1]
     all_text_feats.append(adj_prompt_tokens_features)
@@ -161,7 +146,6 @@ def interpolate(model, feats: torch.Tensor, root_feat: torch.Tensor, steps: int)
 
 # Function to create LaTeX table code, ensuring no [ROOT] before final row
 def create_latex_code(selected_df, selected_columns):
-    # Iterate over each column and replace '[ROOT]' with '$\\downarrow$' if not in the last position
     for col in selected_columns:
         if selected_df[col].eq('[ROOT]').any():  # Check if '[ROOT]' exists in the column
             # Replace all '[ROOT]' occurrences with '$\\downarrow$' except the last one
@@ -192,7 +176,6 @@ def generate_latex_table(file_path):
         data = json.load(file)
     # Convert JSON to DataFrame
     df = pd.DataFrame.from_dict(data, orient='index').transpose()
-    # output tex filename
     output_file_prefix = file_path.replace(".json", "")
     output_tex_path = output_file_prefix + '_latex_tables.tex'  
 
@@ -319,11 +302,5 @@ if __name__ == "__main__":
     print("Results written to:", args.output_json)
     #create the latex template
     generate_latex_table(args.output_json)
-    #print(latex_table)
-    # Remove ".json" extension from args.output_json
-    #output_file_prefix = args.output_json.replace(".json", "")
-
-    # Write LaTeX template to a .tex file
-    #write_latex_template_to_file(latex_table, output_file_prefix + "_latex_template.tex")
 
 
